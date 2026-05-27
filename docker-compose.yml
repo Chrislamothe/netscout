@@ -1,0 +1,33 @@
+# NetScout — example docker-compose.yml
+#
+# Two approaches for multi-VLAN scanning:
+#
+# 1. HOST NETWORK MODE (recommended, shown below)
+#    Uses the Docker host's network stack directly. Configure VLAN
+#    sub-interfaces on the host (ens34.2, ens34.3, etc.) and NetScout
+#    will see them all. Simplest setup, works with trunked uplinks.
+#
+# 2. MACVLAN (alternative, not shown)
+#    Attach the container to a specific physical interface. Useful if
+#    you want network isolation. Requires a Docker macvlan network per
+#    VLAN you want to scan.
+#
+# Either way the container needs NET_ADMIN + NET_RAW for ARP scanning.
+
+services:
+  netscout:
+    image: ghcr.io/Chrislamothe/netscout:latest
+    # Or build locally:
+    # build: .
+    container_name: netscout
+    restart: unless-stopped
+    network_mode: host   # see option 1 above
+    cap_add:
+      - NET_ADMIN        # required for raw socket VLAN scanning
+      - NET_RAW          # required for ARP broadcast
+    volumes:
+      - ./data:/data     # persists devices.json and oui.txt
+    environment:
+      - NETSCOUT_PORT=80
+      # Optional comma-separated CIDRs to scan beyond the default:
+      # - NETSCOUT_EXTRA_SUBNETS=192.168.2.0/24,192.168.3.0/24

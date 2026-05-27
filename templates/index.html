@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NetScout — Home Lab Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div class="logo">
+      <div class="logo-icon"></div>
+      <div>
+        <h1>NetScout</h1>
+        <span>HOME LAB SCANNER</span>
+      </div>
+    </div>
+    <div class="info-bar">
+      <div class="info-pill">HOST <b id="local-ip">—</b></div>
+      <div class="info-pill">SUBNETS <b id="subnet-count">—</b></div>
+      <div class="info-pill" id="scapy-pill"></div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="scan-btn" style="border-color:var(--border);color:var(--text-dim);padding:10px 16px" onclick="toggleSettings()" title="Configure subnets">⚙</button>
+      <button class="scan-btn" id="enrich-btn" style="border-color:var(--accent2);color:var(--accent2)" onclick="showEnrichModal()">⬡ Enrich</button>
+      <button class="scan-btn" id="scan-btn" onclick="startScan()">⬡ Scan Network</button>
+    </div>
+  </header>
+
+  <!-- Enrich modal -->
+  <div id="enrich-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;align-items:center;justify-content:center">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:28px 32px;width:420px;max-width:90vw">
+      <div style="font-weight:800;font-size:16px;margin-bottom:6px">⬡ Deep Scan / Enrich</div>
+      <div style="font-size:12px;color:var(--text-dim);margin-bottom:20px">Port scan and fingerprint all online devices. Runs in background.</div>
+
+      <div style="margin-bottom:14px">
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim);letter-spacing:1px;margin-bottom:8px">PORT PROFILE</div>
+        <div style="display:flex;flex-direction:column;gap:6px" id="profile-options">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px">
+            <input type="radio" name="profile" value="top20" checked> <span>Top 20 ports <span style="color:var(--text-dim);font-size:11px">— fast (~2s/device)</span></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px">
+            <input type="radio" name="profile" value="top100"> <span>Top 100 ports <span style="color:var(--text-dim);font-size:11px">— moderate (~5s/device)</span></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px">
+            <input type="radio" name="profile" value="top1000"> <span>Top 1000 ports <span style="color:var(--text-dim);font-size:11px">— thorough (~15s/device)</span></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px">
+            <input type="radio" name="profile" value="custom"> <span>Custom ports</span>
+          </label>
+        </div>
+        <div id="custom-ports-wrap" style="display:none;margin-top:10px">
+          <input class="search-box" id="custom-ports-input" placeholder="22,80,443,3389,8080…" style="width:100%">
+          <div style="font-size:10px;color:var(--text-dim);margin-top:4px">Comma-separated port numbers</div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <button class="save-btn" style="padding:10px 24px;font-size:13px;background:var(--accent2)" onclick="startEnrich()">Start Enrichment</button>
+        <button class="filter-btn" onclick="hideEnrichModal()" style="padding:10px 16px">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Enrichment progress -->
+  <div id="enrich-progress-wrap" style="display:none;margin-top:8px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <span style="font-family:var(--font-mono);font-size:11px;color:var(--accent2)" id="enrich-status-text"></span>
+      <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim)" id="enrich-count-text"></span>
+    </div>
+    <div style="height:2px;background:var(--border);border-radius:2px;overflow:hidden">
+      <div id="enrich-bar" style="height:100%;background:linear-gradient(90deg,var(--accent2),var(--accent));width:0%;transition:width 0.4s;box-shadow:0 0 8px var(--accent2)"></div>
+    </div>
+  </div>
+
+  <!-- Settings panel -->
+  <div id="settings-panel" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin-top:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <span style="font-weight:700;font-size:14px;letter-spacing:1px;text-transform:uppercase">Subnet Configuration</span>
+      <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim)">Changes persist across restarts</span>
+    </div>
+    <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-bottom:10px">
+      Auto-detected subnet: <b id="auto-subnet" style="color:var(--accent)">—</b>
+    </div>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">Additional subnets to scan (one per line, CIDR format e.g. <code style="color:var(--accent2)">192.168.2.0/24</code>):</div>
+    <textarea id="extra-subnets-input"
+      style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:10px 12px;color:var(--text);font-family:var(--font-mono);font-size:12px;outline:none;resize:vertical;min-height:80px;line-height:1.6"
+      placeholder="192.168.2.0/24&#10;10.0.10.0/24"></textarea>
+    <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+      <button class="save-btn" style="padding:8px 20px;font-size:12px" onclick="saveSubnets()">Save Subnets</button>
+      <span id="subnet-save-status" style="font-family:var(--font-mono);font-size:11px;color:var(--green);opacity:0;transition:opacity 0.3s"></span>
+    </div>
+    <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+      <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim)">ACTIVE SCAN TARGETS:</span>
+      <div id="active-subnets" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"></div>
+    </div>
+
+    <!-- AP SNMP section -->
+    <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <span style="font-weight:700;font-size:13px;letter-spacing:1px;text-transform:uppercase">Wireless APs (SNMP)</span>
+        <button class="save-btn" style="padding:6px 14px;font-size:11px;background:var(--surface2);color:var(--accent2);border:1px solid var(--accent2)" onclick="pollAPs()">📶 Poll APs Now</button>
+      </div>
+      <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">
+        Add Aruba AOS10 APs to identify wirelessly connected devices by SSID and AP name.
+      </div>
+      <div id="ap-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px"></div>
+      <button class="filter-btn" style="font-size:11px;padding:6px 14px" onclick="addApRow()">+ Add AP</button>
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+        <button class="save-btn" style="padding:8px 20px;font-size:12px" onclick="saveAPs()">Save APs</button>
+        <span id="ap-save-status" style="font-family:var(--font-mono);font-size:11px;color:var(--green);opacity:0;transition:opacity 0.3s"></span>
+      </div>
+    </div>
+
+    <!-- Switch SNMP section -->
+    <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <span style="font-weight:700;font-size:13px;letter-spacing:1px;text-transform:uppercase">Managed Switches (SNMP)</span>
+        <button class="save-btn" style="padding:6px 14px;font-size:11px;background:var(--surface2);color:var(--accent);border:1px solid var(--accent)" onclick="pollSwitchPorts()">⟳ Poll Switch Ports Now</button>
+      </div>
+      <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">
+        Add your managed switches to map devices to physical switch ports.
+      </div>
+      <div id="switch-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px"></div>
+      <button class="filter-btn" style="font-size:11px;padding:6px 14px" onclick="addSwitchRow()">+ Add Switch</button>
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+        <button class="save-btn" style="padding:8px 20px;font-size:12px" onclick="saveSwitches()">Save Switches</button>
+        <span id="switch-save-status" style="font-family:var(--font-mono);font-size:11px;color:var(--green);opacity:0;transition:opacity 0.3s"></span>
+      </div>
+    </div>
+
+    <!-- OUI Database section -->
+    <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <span style="font-weight:700;font-size:13px;letter-spacing:1px;text-transform:uppercase">OUI Vendor Database</span>
+        <span id="oui-status" style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim)">Loading…</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">
+        Downloads the full IEEE OUI database (~6MB, 30,000+ vendors) and re-resolves all known devices.
+        Update periodically to identify new hardware.
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="save-btn" style="padding:8px 20px;font-size:12px;background:var(--accent);color:var(--bg)" onclick="updateOui()">⬇ Download / Update OUI DB</button>
+        <span id="oui-update-status" style="font-family:var(--font-mono);font-size:11px;color:var(--green);opacity:0;transition:opacity 0.5s"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="progress-wrap" id="progress-wrap">
+    <div class="progress-bar" id="progress-bar"></div>
+  </div>
+  <div class="scan-status" id="scan-status"></div>
+
+  <div class="stats">
+    <div class="stat online"><div class="stat-num" id="count-online">—</div><div class="stat-label">Online</div></div>
+    <div class="stat offline"><div class="stat-num" id="count-offline">—</div><div class="stat-label">Offline</div></div>
+    <div class="stat"><div class="stat-num" id="count-labeled">—</div><div class="stat-label">Labeled</div></div>
+    <div class="stat"><div class="stat-num" id="count-total">—</div><div class="stat-label">Total Seen</div></div>
+  </div>
+
+  <div class="toolbar">
+    <input class="search-box" id="search" type="text" placeholder="Search IP, MAC, hostname, label…" oninput="renderDevices()">
+    <button class="filter-btn active" id="f-all" onclick="setFilter('all')">All</button>
+    <button class="filter-btn" id="f-online" onclick="setFilter('online')">Online</button>
+    <button class="filter-btn" id="f-offline" onclick="setFilter('offline')">Offline</button>
+    <button class="filter-btn" id="f-labeled" onclick="setFilter('labeled')">Labeled</button>
+    <div class="view-toggle" style="margin-left:auto">
+      <button class="view-btn active" id="v-list" onclick="setView('list')" title="List view">≡</button>
+      <button class="view-btn" id="v-grid" onclick="setView('grid')" title="Card view">⊞</button>
+      <button class="view-btn" id="v-table" onclick="setView('table')" title="Table view">☰</button>
+    </div>
+    <span class="last-scan" id="last-scan"></span>
+  </div>
+
+  <div id="device-container">
+    <div class="device-grid" id="device-grid">
+      <div class="empty-state">
+        <div class="icon">⬡</div>
+        <p>No devices yet.<br>Run a scan to discover your network.</p>
+      </div>
+    </div>
+  </div>
+
+  <footer>NetScout v1.0 &nbsp;·&nbsp; Home Lab Network Scanner &nbsp;·&nbsp; Data stored locally</footer>
+</div>
+
+<!-- Category legend -->
+<div class="cat-legend" id="cat-legend">
+  <div class="cat-legend-title">Categories</div>
+  <div class="cat-legend-item" onclick="filterByCategory('server')" id="leg-server">
+    <span class="cat-legend-dot" style="background:var(--cat-server)"></span>Server / VM
+  </div>
+  <div class="cat-legend-item" onclick="filterByCategory('infra')" id="leg-infra">
+    <span class="cat-legend-dot" style="background:var(--cat-infra)"></span>Infrastructure
+  </div>
+  <div class="cat-legend-item" onclick="filterByCategory('iot')" id="leg-iot">
+    <span class="cat-legend-dot" style="background:var(--cat-iot)"></span>IoT Device
+  </div>
+  <div class="cat-legend-item" onclick="filterByCategory('desktop')" id="leg-desktop">
+    <span class="cat-legend-dot" style="background:var(--cat-desktop)"></span>Desktop / User
+  </div>
+  <div class="cat-legend-item" onclick="filterByCategory('unknown')" id="leg-unknown">
+    <span class="cat-legend-dot" style="background:var(--cat-unknown)"></span>Unknown
+  </div>
+  <div class="cat-legend-item" style="margin-top:2px;border-top:1px solid var(--border);padding-top:4px" onclick="filterByCategory(null)">
+    <span style="font-size:9px">✕ Clear filter</span>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
