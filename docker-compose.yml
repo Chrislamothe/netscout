@@ -16,7 +16,7 @@
 
 services:
   netscout:
-    image: ghcr.io/Chrislamothe/netscout:latest
+    image: ghcr.io/chrislamothe/netscout:latest
     # Or build locally:
     # build: .
     container_name: netscout
